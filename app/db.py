@@ -12,6 +12,9 @@ print("[DB] DATABASE_URL loaded:", bool(raw_url))
 if raw_url.startswith("postgresql://"):
     raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+if "sslmode" in raw_url:
+    raw_url = raw_url.split("?sslmode=")[0]
+
 engine = create_async_engine(
     raw_url,
     echo=False,
