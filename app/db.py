@@ -4,6 +4,11 @@ from sqlalchemy.orm import declarative_base
 
 # Make sure we use the asyncpg driver
 raw_url = os.getenv("DATABASE_URL", "")
+
+if not raw_url:
+    raise RuntimeError("DATABASE_URL not set")
+
+print("[DB] DATABASE_URL loaded:", bool(raw_url))
 if raw_url.startswith("postgresql://"):
     raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
