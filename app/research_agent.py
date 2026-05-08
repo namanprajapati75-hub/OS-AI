@@ -1,4 +1,4 @@
-from app.llm import get_llm_with_fallback
+from app.llm import get_agent_llm
 from app.tools import web_search
 
 
@@ -30,7 +30,7 @@ Be concise and specific."""
 
     try:
         print(f"[Research] Invoking LLM for goal: {goal}")
-        response = await get_llm_with_fallback(prompt)
+        response = await get_agent_llm(prompt)
         print("[Research] Response received.")
         return {
             "agent": "research",

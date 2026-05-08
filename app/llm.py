@@ -8,25 +8,26 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 api_key = os.getenv("GROQ_API_KEY")
 
-PRIMARY_MODEL = "llama-3.3-70b-versatile"
-BACKUP_MODEL = "llama3-8b-8192"
+CEO_MODEL = "llama-3.3-70b-versatile"
+AGENT_MODEL = "llama-3.1-8b-instant"
 
 print("GROQ KEY FOUND:", bool(api_key))
-print(f"PRIMARY MODEL: {PRIMARY_MODEL}")
-print(f"BACKUP MODEL:  {BACKUP_MODEL}")
+print(f"CEO MODEL:   {CEO_MODEL}")
+print(f"AGENT MODEL: {AGENT_MODEL}")
 
 
-def get_llm(model: str = PRIMARY_MODEL):
+def get_llm(model: str):
     return ChatGroq(
         model=model,
         api_key=api_key,
     )
 
 
-async def get_llm_with_fallback(prompt: str):
-    """Try primary model, fall back to backup if it fails."""
+async def _invoke_with_fallback(prompt: str, target_model: str):
+    """Invoke the target model, falling back to itself as a retry mechanism."""
     errors = []
-    for model in [PRIMARY_MODEL, BACKUP_MODEL]:
+    # Try the same model twice in case of ephemeral network/rate-limit issues
+    for model in [target_model, target_model]:
         try:
             print(f"\n[LLM] Trying model: {model}")
             llm = get_llm(model)
@@ -47,3 +48,11 @@ async def get_llm_with_fallback(prompt: str):
     raise RuntimeError(
         f"All models failed. Errors: {errors}"
     )
+
+
+async def get_ceo_llm(prompt: str):
+    return await _invoke_with_fallback(prompt, CEO_MODEL)
+
+
+async def get_agent_llm(prompt: str):
+    return await _invoke_with_fallback(prompt, AGENT_MODEL)

@@ -1,4 +1,4 @@
-from app.llm import get_llm_with_fallback
+from app.llm import get_agent_llm
 
 
 async def run_sales_agent(task: str):
@@ -20,7 +20,7 @@ Be highly actionable and specific."""
 
     try:
         print(f"[Sales] Invoking LLM for task: {task}")
-        response = await get_llm_with_fallback(prompt)
+        response = await get_agent_llm(prompt)
         print("[Sales] Response received.")
         return {
             "agent": "sales",

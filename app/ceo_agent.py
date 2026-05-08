@@ -1,7 +1,7 @@
 import json
 import re
 
-from app.llm import get_llm_with_fallback
+from app.llm import get_ceo_llm
 from app.research_agent import run_research_agent
 from app.marketing_agent import run_marketing_agent
 from app.content_agent import run_content_agent
@@ -56,7 +56,7 @@ JSON format:
 
     try:
         print(f"[CEO] Sending goal to LLM: {goal}")
-        response = await get_llm_with_fallback(prompt)
+        response = await get_ceo_llm(prompt)
         raw = response.content
         print(f"[CEO] Raw LLM response:\n{raw}")
     except Exception as e:

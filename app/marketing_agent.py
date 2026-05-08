@@ -1,24 +1,23 @@
-from app.llm import get_llm_with_fallback
+from app.llm import get_agent_llm
 
 
 async def run_marketing_agent(task: str):
-    prompt = f"""You are an elite marketing strategist.
+    prompt = f"""You are a senior marketing strategist.
 
-Given the following task, provide a comprehensive but concise marketing plan:
+Given the following task, provide a highly actionable marketing strategy:
 
 Task: {task}
 
 Provide:
 1. Target audience
-2. Growth strategy
-3. Content ideas
-4. Monetization ideas
-
-Be specific and actionable."""
+2. Marketing channels
+3. Content strategy
+4. Estimated budget allocation
+5. KPIs to track"""
 
     try:
         print(f"[Marketing] Invoking LLM for task: {task}")
-        response = await get_llm_with_fallback(prompt)
+        response = await get_agent_llm(prompt)
         print("[Marketing] Response received.")
         return {
             "agent": "marketing",
