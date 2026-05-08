@@ -67,8 +67,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"[Bot] Received: {user_message} (user: {user_id})")
 
     # Save user message to memory
-    save_message(user_id, "user", user_message)
-    memory = get_memory(user_id)
+    await save_message(user_id, "user", user_message)
+    memory = await get_memory(user_id)
     print(f"[Memory] {memory}")
 
     await update.message.reply_text("⏳ Processing your goal...")
@@ -101,7 +101,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(chunk)
 
         # Save assistant response to memory
-        save_message(user_id, "assistant", reply)
+        await save_message(user_id, "assistant", reply)
 
     except httpx.ConnectError:
         await update.message.reply_text("❌ Backend is offline. Start uvicorn first.")

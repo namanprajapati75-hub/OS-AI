@@ -91,7 +91,7 @@ JSON format:
 
     queued_tasks = []
     for t in tasks:
-        queued = add_task(t)
+        queued = await add_task(t)
         queued_tasks.append(queued)
         print(f"[QUEUE] Added task: {queued}")
 

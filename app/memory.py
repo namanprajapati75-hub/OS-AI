@@ -1,15 +1,31 @@
-memory_store = {}
+import uuid
+from sqlalchemy import select, delete
+from app.db import AsyncSessionLocal
+from app.models import UserMemory
 
 
-def save_message(user_id: str, role: str, content: str):
-    if user_id not in memory_store:
-        memory_store[user_id] = []
-    memory_store[user_id].append({"role": role, "content": content})
+async def save_message(user_id: str, role: str, content: str):
+    async with AsyncSessionLocal() as session:
+        new_msg = UserMemory(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            role=role,
+            content=content,
+        )
+        session.add(new_msg)
+        await session.commit()
 
 
-def get_memory(user_id: str) -> list:
-    return memory_store.get(user_id, [])
+async def get_memory(user_id: str) -> list:
+    async with AsyncSessionLocal() as session:
+        stmt = select(UserMemory).where(UserMemory.user_id == user_id).order_by(UserMemory.created_at.asc())
+        result = await session.execute(stmt)
+        memories = result.scalars().all()
+        return [{"role": m.role, "content": m.content} for m in memories]
 
 
-def clear_memory(user_id: str):
-    memory_store.pop(user_id, None)
+async def clear_memory(user_id: str):
+    async with AsyncSessionLocal() as session:
+        stmt = delete(UserMemory).where(UserMemory.user_id == user_id)
+        await session.execute(stmt)
+        await session.commit()

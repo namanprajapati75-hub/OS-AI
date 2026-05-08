@@ -5,15 +5,20 @@ from fastapi.responses import JSONResponse
 from app.graph import graph
 from app.schemas import AgentRequest
 from app.worker import run_worker
+from app.db import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: Initialize DB tables
+    await init_db()
+    print("[SYSTEM] Database tables initialized")
+    
     # Startup: launch background worker
     asyncio.create_task(run_worker())
     print("[SYSTEM] Worker started")
     yield
-    # Shutdown (nothing to clean up for in-memory queue)
+    # Shutdown (no special cleanup needed)
 
 
 app = FastAPI(lifespan=lifespan)

@@ -11,7 +11,7 @@ async def run_worker():
     print("[WORKER] Started background worker.")
     
     while True:
-        task = pop_task()
+        task = await pop_task()
         
         if not task:
             # print("[WORKER] Waiting for tasks...") # Optional: commented out to prevent log spam
