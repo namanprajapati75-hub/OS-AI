@@ -15,8 +15,8 @@ async def lifespan(app: FastAPI):
     print("[SYSTEM] Database tables initialized")
     
     # Startup: launch background worker
-    asyncio.create_task(run_worker())
-    print("[SYSTEM] Worker started")
+    # asyncio.create_task(run_worker())
+    print("[SYSTEM] Worker temporarily disabled")
     yield
     # Shutdown (no special cleanup needed)
 
