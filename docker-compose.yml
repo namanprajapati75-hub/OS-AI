@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  ai-os:
+    build: .
+    container_name: ai-os-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    restart: unless-stopped
