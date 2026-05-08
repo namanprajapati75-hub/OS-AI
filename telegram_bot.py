@@ -9,7 +9,7 @@ from app.memory import save_message, get_memory
 load_dotenv(Path(__file__).parent / ".env")
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-API_URL = "http://127.0.0.1:8000/run"
+API_URL = "https://os-ai.onrender.com/run"
 
 
 def safe_text(text):
