@@ -1,12 +1,19 @@
 import json
 import re
+import time
 
 from app.llm import get_ceo_llm
-from app.research_agent import run_research_agent
-from app.marketing_agent import run_marketing_agent
-from app.content_agent import run_content_agent
-from app.sales_agent import run_sales_agent
 from app.task_queue import add_task
+
+
+# Keywords for detecting business context in user messages
+BUSINESS_KEYWORDS = {
+    "niche": ["niche", "industry", "sector", "space", "field"],
+    "audience": ["audience", "target market", "demographic", "customers", "age group"],
+    "platforms": ["instagram", "youtube", "tiktok", "twitter", "linkedin", "facebook", "platform"],
+    "monetization": ["monetize", "monetization", "revenue model", "income", "affiliate", "sponsorship", "ads"],
+    "goals": ["goal", "objective", "vision", "mission", "aim", "target revenue"],
+}
 
 
 def _extract_json(text: str) -> dict:
@@ -22,7 +29,26 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
-async def run_ceo_agent(goal: str, memory: list = []):
+def _detect_business_updates(user_message: str) -> dict:
+    """Detect strategic business info from user message using keyword matching."""
+    updates = {}
+    msg_lower = user_message.lower()
+
+    for key, keywords in BUSINESS_KEYWORDS.items():
+        for kw in keywords:
+            if kw in msg_lower:
+                # Extract a relevant snippet around the keyword (the full message for now, truncated)
+                updates[key] = user_message[:500]
+                break
+
+    if updates:
+        print(f"[CEO] Detected business context updates: {list(updates.keys())}")
+    return updates
+
+
+async def run_ceo_agent(goal: str, memory: list = [], business_context: dict = {}):
+    start_time = time.time()
+
     # Build conversation history text
     memory_text = ""
     if memory:
@@ -32,27 +58,65 @@ async def run_ceo_agent(goal: str, memory: list = []):
             content = msg.get("content", "")
             lines.append(f"{role}: {content}")
         memory_text = "\n".join(lines)
-    print(f"[CEO MEMORY] {memory_text or '(empty)'}")
+    print(f"[CEO MEMORY] {memory_text[:200] or '(empty)'}")
+
+    # Build business profile section
+    biz_section = ""
+    if business_context:
+        biz_lines = [f"  {k}: {v}" for k, v in business_context.items()]
+        biz_section = "Business Profile:\n" + "\n".join(biz_lines) + "\n\n"
+        print(f"[CEO] Injecting business context: {list(business_context.keys())}")
 
     prompt = f"""You are a CEO of a company.
 
 Given the business goal below, respond with ONLY a JSON object — no markdown, no explanation.
 
-You MUST always include a "Research" department with tasks for:
-- Market research
-- Trend analysis
-- Competitor analysis
+Create an execution plan with STAGES. Each stage runs in order. Later stages can use results from earlier stages.
 
-{"Previous conversation:" + chr(10) + memory_text + chr(10) if memory_text else ""}Current Goal: {goal}
+Stage 1 should always be Research. Then Marketing, Content, Sales in later stages.
+
+{biz_section}{("Previous conversation:" + chr(10) + memory_text + chr(10) + chr(10)) if memory_text else ""}Current Goal: {goal}
 
 JSON format:
 {{
-  "departments": ["Research", "Dept2"],
-  "tasks": [
-    {{"department": "Research", "task": "Research market trends and competitors", "priority": "high"}},
-    {{"department": "Dept2", "task": "Task description", "priority": "medium"}}
+  "departments": ["Research", "Marketing", "Content", "Sales"],
+  "stages": [
+    {{
+      "stage": 1,
+      "tasks": [
+        {{"department": "Research", "task": "task description", "priority": "high"}}
+      ]
+    }},
+    {{
+      "stage": 2,
+      "depends_on": [1],
+      "tasks": [
+        {{"department": "Marketing", "task": "task description", "priority": "high"}}
+      ]
+    }},
+    {{
+      "stage": 3,
+      "depends_on": [1, 2],
+      "tasks": [
+        {{"department": "Content", "task": "task description", "priority": "medium"}}
+      ]
+    }},
+    {{
+      "stage": 4,
+      "depends_on": [2, 3],
+      "tasks": [
+        {{"department": "Sales", "task": "task description", "priority": "medium"}}
+      ]
+    }}
   ]
-}}"""
+}}
+
+Tasks can optionally include scheduling:
+  "execution_type": "immediate" or "scheduled" or "recurring"
+  "scheduled_for": "YYYY-MM-DD" (only for scheduled)
+  "recurring_interval": "daily" or "weekly" or "monthly" (only for recurring)
+
+Default execution_type is "immediate" if not specified."""
 
     try:
         print(f"[CEO] Sending goal to LLM: {goal}")
@@ -60,7 +124,7 @@ JSON format:
         raw = response.content
         print(f"[CEO] Raw LLM response:\n{raw}")
     except Exception as e:
-        print(f"[CEO] LLM call failed: {e}")
+        print(f"[CEO] Failed after {time.time() - start_time:.2f}s: {e}")
         return {"status": "error", "message": f"LLM call failed: {str(e)}"}
 
     try:
@@ -73,62 +137,48 @@ JSON format:
             "raw": raw,
         }
 
-    # Ensure research task exists
-    agent_results = []
-    tasks = parsed.get("tasks", [])
-    has_research = any("research" in t.get("department", "").lower() for t in tasks)
-    if not has_research:
-        print("[CEO] No research task found — auto-appending one.")
-        tasks.append({
-            "department": "Research",
-            "task": "Research latest market trends, competitors, and opportunities related to the business goal",
-            "priority": "high",
-        })
+    # Normalize stages
+    stages = parsed.get("stages", [])
+
+    # If CEO returned flat tasks instead of stages, wrap them
+    if not stages and parsed.get("tasks"):
+        print("[CEO] No stages found — wrapping flat tasks into single stage")
+        stages = [{"stage": 1, "tasks": parsed["tasks"]}]
+
+    # Ensure research exists in stage 1
+    if stages:
+        stage1_tasks = stages[0].get("tasks", [])
+        has_research = any("research" in t.get("department", "").lower() for t in stage1_tasks)
+        if not has_research:
+            print("[CEO] No research task in stage 1 — auto-appending one.")
+            stage1_tasks.append({
+                "department": "Research",
+                "task": "Research latest market trends, competitors, and opportunities related to the business goal",
+                "priority": "high",
+            })
+            stages[0]["tasks"] = stage1_tasks
 
     departments = parsed.get("departments", [])
     if "Research" not in departments:
         departments.append("Research")
 
-    queued_tasks = []
-    for t in tasks:
-        queued = await add_task(t)
-        queued_tasks.append(queued)
-        print(f"[QUEUE] Added task: {queued}")
+    # Flatten all tasks for queue persistence
+    all_tasks = []
+    for stage in stages:
+        for t in stage.get("tasks", []):
+            queued = await add_task(t)
+            all_tasks.append(t)
+            print(f"[QUEUE] Added task (stage {stage.get('stage', '?')}): {queued}")
 
-        dept = t.get("department", "").lower()
-        task_desc = t.get("task", "")
-        print(f"[CEO] Routing: {dept} → {task_desc[:60]}")
+    # Detect business updates from the user goal
+    business_updates = _detect_business_updates(goal)
 
-        try:
-            # Check for content keywords in both dept and task_desc
-            content_keywords = ["content", "reels", "instagram", "social media", "youtube", "viral"]
-            is_content_task = any(kw in dept for kw in content_keywords) or any(kw in task_desc.lower() for kw in content_keywords)
-
-            # Check for sales keywords in both dept and task_desc
-            sales_keywords = ["sales", "outreach", "leads", "monetization", "partnerships", "revenue", "clients", "affiliate"]
-            is_sales_task = any(kw in dept for kw in sales_keywords) or any(kw in task_desc.lower() for kw in sales_keywords)
-
-            if is_sales_task:
-                result = await run_sales_agent(task_desc)
-                agent_results.append(result)
-            elif is_content_task:
-                result = await run_content_agent(task_desc)
-                agent_results.append(result)
-            elif "marketing" in dept:
-                result = await run_marketing_agent(task_desc)
-                agent_results.append(result)
-            elif "research" in dept:
-                result = await run_research_agent(task_desc)
-                agent_results.append(result)
-        except Exception as e:
-            print(f"[CEO] Agent failed for {dept}: {e}")
-            agent_results.append({"agent": dept, "error": str(e)})
-
+    print(f"[CEO] Completed in {time.time() - start_time:.2f}s — {len(stages)} stages, {len(all_tasks)} tasks")
     return {
         "status": "success",
         "goal": goal,
         "departments": departments,
-        "tasks": tasks,
-        "queued_tasks": queued_tasks,
-        "agent_results": agent_results,
+        "stages": stages,
+        "tasks": all_tasks,
+        "business_updates": business_updates,
     }

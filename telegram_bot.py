@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
-from app.memory import save_message, get_memory
+from app.memory import save_message, get_memory, save_business_context, get_business_context
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -36,13 +36,18 @@ def format_response(data: dict) -> str:
         for dept in departments:
             lines.append(f"  • {dept}")
 
-    # Tasks
-    tasks = data.get("tasks", [])
-    if tasks:
-        lines.append(f"\n📋 Tasks:")
-        for t in tasks:
-            priority = t.get("priority", "").upper()
-            lines.append(f"  • [{priority}] {t.get('department', '')}: {t.get('task', '')}")
+    # Stages overview
+    stages = data.get("stages", [])
+    if stages:
+        lines.append(f"\n📊 Execution Plan ({len(stages)} stages):")
+        for stage in stages:
+            stage_num = stage.get("stage", "?")
+            stage_tasks = stage.get("tasks", [])
+            deps = stage.get("depends_on", [])
+            dep_text = f" (depends on: {deps})" if deps else ""
+            lines.append(f"  Stage {stage_num}{dep_text}:")
+            for t in stage_tasks:
+                lines.append(f"    • [{t.get('priority', '').upper()}] {t.get('department', '')}: {t.get('task', '')}")
 
     # Agent Results
     agent_results = data.get("agent_results", [])
@@ -69,12 +74,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Save user message to memory
     await save_message(user_id, "user", user_message)
     memory = await get_memory(user_id)
-    print(f"[Memory] {memory}")
+    print(f"[Memory] {len(memory)} messages")
+
+    # Load business context
+    business_ctx = await get_business_context(user_id)
 
     await update.message.reply_text("⏳ Processing your goal...")
 
-    payload = {"goal": user_message, "memory": memory}
-    print(f"[Bot] Sending payload: {payload}")
+    payload = {"goal": user_message, "memory": memory, "business_context": business_ctx}
+    print(f"[Bot] Sending payload with {len(memory)} memory msgs, {len(business_ctx)} biz keys")
     print(f"[Bot] Target URL: {API_URL}")
 
     try:
@@ -102,6 +110,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Save assistant response to memory
         await save_message(user_id, "assistant", reply)
+
+        # Save any detected business context updates
+        biz_updates = data.get("business_updates", {})
+        if biz_updates:
+            await save_business_context(user_id, biz_updates)
+            print(f"[Bot] Saved business context: {list(biz_updates.keys())}")
 
     except httpx.ConnectError:
         await update.message.reply_text("❌ Backend is offline. Start uvicorn first.")

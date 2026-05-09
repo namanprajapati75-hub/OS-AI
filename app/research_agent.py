@@ -1,8 +1,10 @@
+import time
 from app.llm import get_agent_llm
 from app.tools import web_search
 
 
 async def run_research_agent(goal: str):
+    start_time = time.time()
     # Fetch live web research
     search_result = await web_search(goal)
     print(f"[WEB SEARCH] {search_result}")
@@ -20,18 +22,18 @@ Business Goal: {goal}
 
 {web_section}
 
-Based on the goal and research above, provide:
+Based on the goal and research above, provide (use bullet points, keep each section short):
 1. Key opportunities
 2. Current market trends
 3. Actionable recommendations
 4. Potential risks
 
-Be concise and specific."""
+Keep responses concise, actionable, and under 300 words."""
 
     try:
         print(f"[Research] Invoking LLM for goal: {goal}")
         response = await get_agent_llm(prompt)
-        print("[Research] Response received.")
+        print(f"[Research] Completed in {time.time() - start_time:.2f}s")
         return {
             "agent": "research",
             "goal": goal,
@@ -39,7 +41,7 @@ Be concise and specific."""
             "output": response.content,
         }
     except Exception as e:
-        print(f"[Research] LLM call failed: {e}")
+        print(f"[Research] Failed after {time.time() - start_time:.2f}s: {e}")
         return {
             "agent": "research",
             "goal": goal,

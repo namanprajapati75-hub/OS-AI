@@ -1,5 +1,5 @@
 import asyncio
-from app.task_queue import pop_task
+from app.task_queue import pop_task, reschedule_recurring
 from app.marketing_agent import run_marketing_agent
 from app.research_agent import run_research_agent
 from app.content_agent import run_content_agent
@@ -14,15 +14,15 @@ async def run_worker():
         task = await pop_task()
         
         if not task:
-            # print("[WORKER] Waiting for tasks...") # Optional: commented out to prevent log spam
             await asyncio.sleep(5)
             continue
             
         task_id = task.get("id")
         dept = task.get("department", "").lower()
         desc = task.get("task", "")
+        exec_type = task.get("execution_type", "immediate")
         
-        print(f"\n[WORKER] Executing task {task_id[:8]} ({dept}): {desc[:60]}...")
+        print(f"\n[WORKER] Executing task {task_id[:8]} ({dept}) [{exec_type}]: {desc[:60]}...")
         
         try:
             content_keywords = ["content", "reels", "instagram", "social media", "youtube", "viral"]
@@ -47,6 +47,11 @@ async def run_worker():
                 print(f"[WORKER] Completed {task_id[:8]}: {result.get('output', '')[:100]}...")
             else:
                 print(f"[WORKER] Completed {task_id[:8]}: No agent configured for '{dept}' department.")
+
+            # Reschedule recurring tasks
+            if exec_type == "recurring":
+                await reschedule_recurring(task)
+
         except Exception as e:
             print(f"[WORKER] Error executing {task_id[:8]}: {e}")
             

@@ -10,10 +10,13 @@ from app.db import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize DB tables
-    await init_db()
-    print("[SYSTEM] Database tables initialized")
-    
+    # Startup: Initialize DB tables (non-fatal if DB is temporarily unreachable)
+    try:
+        await init_db()
+        print("[SYSTEM] Database tables initialized")
+    except Exception as e:
+        print(f"[SYSTEM] WARNING: DB init failed (will retry on next request): {e}")
+
     # Startup: launch background worker
     # asyncio.create_task(run_worker())
     print("[SYSTEM] Worker temporarily disabled")
@@ -35,9 +38,13 @@ async def run(request: AgentRequest):
         result = await graph.ainvoke({
             "goal": request.goal,
             "memory": request.memory or [],
+            "business_context": request.business_context or {},
             "tasks": [],
             "departments": [],
-            "agent_results": []
+            "stages": [],
+            "agent_results": [],
+            "stage_results": {},
+            "business_updates": {},
         })
         
         # graph.ainvoke returns the final state dict.

@@ -1,6 +1,12 @@
 import os
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
+
+# Load .env from project root so this works both inside uvicorn and standalone
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Make sure we use the asyncpg driver
 raw_url = os.getenv("DATABASE_URL", "")
@@ -9,16 +15,20 @@ if not raw_url:
     raise RuntimeError("DATABASE_URL not set")
 
 print("[DB] DATABASE_URL loaded:", bool(raw_url))
+
+# Convert to asyncpg driver
 if raw_url.startswith("postgresql://"):
     raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-if "sslmode" in raw_url:
-    raw_url = raw_url.split("?sslmode=")[0]
+# Strip all query parameters (sslmode, channel_binding, etc.) — asyncpg handles SSL automatically
+parts = urlsplit(raw_url)
+raw_url = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+print("[DB] Using URL:", raw_url.split("@")[-1])  # log host/db only, not credentials
 
 engine = create_async_engine(
     raw_url,
     echo=False,
-    # Optional pool configurations for Neon
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class AgentRequest(BaseModel):
     goal: str
     memory: list = []
+    business_context: dict = {}
 
 
 class TaskItem(BaseModel):

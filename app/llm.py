@@ -1,3 +1,4 @@
+import asyncio
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from pathlib import Path
@@ -23,36 +24,49 @@ def get_llm(model: str):
     )
 
 
-async def _invoke_with_fallback(prompt: str, target_model: str):
-    """Invoke the target model, falling back to itself as a retry mechanism."""
-    errors = []
-    # Try the same model twice in case of ephemeral network/rate-limit issues
-    for model in [target_model, target_model]:
-        try:
-            print(f"\n[LLM] Trying model: {model}")
-            llm = get_llm(model)
-            response = await llm.ainvoke(prompt)
-            print(f"[LLM] Success with: {model}")
+def _is_rate_limit(e: Exception) -> bool:
+    return "429" in str(e) or "rate_limit_exceeded" in str(e).lower()
+
+
+async def _try_invoke(model: str, prompt: str) -> object | None:
+    """Attempt a single LLM invoke. Returns response or None on failure."""
+    try:
+        print(f"\n[LLM] Trying model: {model}")
+        llm = get_llm(model)
+        response = await llm.ainvoke(prompt)
+        print(f"[LLM] Success with: {model}")
+        return response
+    except Exception as e:
+        print(f"[LLM] Failed model: {model}")
+        print(f"[LLM] Error type: {type(e).__name__}")
+        print(f"[LLM] Raw error: {e}")
+        print(f"[LLM] {'─' * 50}")
+
+        if _is_rate_limit(e):
+            print("[LLM] Rate limited. Waiting before retry...")
+            await asyncio.sleep(2)
+
+        return None
+
+
+async def _invoke_with_fallback(prompt: str, primary: str, fallback: str):
+    """
+    Try primary model once.
+    On failure (including rate limit + sleep), retry primary once.
+    If still failing, try fallback model once.
+    Raises RuntimeError only if all attempts fail.
+    """
+    for model in [primary, primary, fallback]:
+        response = await _try_invoke(model, prompt)
+        if response is not None:
             return response
-        except Exception as e:
-            print(f"[LLM] Failed model: {model}")
-            print(f"[LLM] Error type: {type(e).__name__}")
-            print(f"[LLM] Raw error: {e}")
-            print(f"[LLM] {'─' * 50}")
-            errors.append({"model": model, "type": type(e).__name__, "error": str(e)})
 
-    print(f"\n[LLM] ❌ ALL MODELS FAILED")
-    for err in errors:
-        print(f"[LLM]   • {err['model']} → {err['type']}: {err['error'][:200]}")
-
-    raise RuntimeError(
-        f"All models failed. Errors: {errors}"
-    )
+    raise RuntimeError(f"All LLM attempts failed for models: [{primary}, {primary}, {fallback}]")
 
 
 async def get_ceo_llm(prompt: str):
-    return await _invoke_with_fallback(prompt, CEO_MODEL)
+    return await _invoke_with_fallback(prompt, CEO_MODEL, AGENT_MODEL)
 
 
 async def get_agent_llm(prompt: str):
-    return await _invoke_with_fallback(prompt, AGENT_MODEL)
+    return await _invoke_with_fallback(prompt, AGENT_MODEL, AGENT_MODEL)
