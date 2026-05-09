@@ -1,56 +1,57 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Wifi } from "lucide-react";
-import { ActivityLog, mockActivityLog } from "@/data/mock";
+import { Terminal } from "lucide-react";
+import { MappedActivityLog } from "@/lib/api";
+import { useBackend } from "@/hooks/useBackend";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
-const TYPE_STYLES = {
+// ─── Styling maps ─────────────────────────────────────────────────────────────
+
+const TYPE_STYLES: Record<MappedActivityLog["type"], string> = {
   info: "text-slate-400",
   success: "text-green-400",
   warning: "text-amber-400",
   processing: "text-cyan-400",
 };
 
-const TYPE_PREFIX = {
+const TYPE_PREFIX: Record<MappedActivityLog["type"], string> = {
   info: "ℹ",
   success: "✓",
   warning: "⚠",
   processing: "⟳",
 };
 
-const EXTRA_LOGS: Omit<ActivityLog, "id">[] = [
-  { timestamp: "18:42:41", agent: "CEO", message: "Scheduling recurring task: Weekly competitor analysis", type: "info" },
-  { timestamp: "18:42:44", agent: "Marketing", message: "Reel script #1 ready: 'The 3AM Grind Reel'", type: "success" },
-  { timestamp: "18:42:47", agent: "Research", message: "New signal: TikTok AI tools trend +220% this week", type: "warning" },
-  { timestamp: "18:42:51", agent: "Sales", message: "Draft DM template sent for review", type: "success" },
-  { timestamp: "18:42:55", agent: "CEO", message: "Business memory updated: niche, audience, platforms stored", type: "info" },
-];
+const AGENT_COLORS: Record<string, string> = {
+  CEO: "text-orange-400",
+  Research: "text-cyan-400",
+  Marketing: "text-pink-400",
+  Sales: "text-green-400",
+  Content: "text-purple-400",
+  Finance: "text-emerald-400",
+  Developer: "text-indigo-400",
+  Operations: "text-blue-400",
+  HR: "text-violet-400",
+};
+
+// ─── Activity Feed ────────────────────────────────────────────────────────────
 
 export function ActivityFeed() {
-  const [logs, setLogs] = useState<ActivityLog[]>(mockActivityLog);
+  const { activityLogs, isLoading, hasRun } = useBackend();
   const [autoScroll, setAutoScroll] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
-  const counterRef = useRef(0);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const next = EXTRA_LOGS[counterRef.current % EXTRA_LOGS.length];
-      counterRef.current++;
-      setLogs((prev) => [
-        ...prev.slice(-30),
-        { ...next, id: `live-${Date.now()}` },
-      ]);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
+  // Auto-scroll to bottom whenever logs change
   useEffect(() => {
     if (autoScroll && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [logs, autoScroll]);
+  }, [activityLogs, autoScroll]);
+
+  const agentColor = (agent: string) =>
+    AGENT_COLORS[agent] || "text-slate-400";
 
   return (
     <div className="flex flex-col rounded-2xl border border-[#1a2340] bg-[#080d1a] overflow-hidden">
@@ -60,8 +61,13 @@ export function ActivityFeed() {
           <Terminal className="h-4 w-4 text-cyan-400" />
           <span className="text-sm font-semibold text-white">Activity Log</span>
           <span className="flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400">
-            <span className="h-1 w-1 rounded-full bg-green-500 animate-pulse" />
-            LIVE
+            <span
+              className={cn(
+                "h-1 w-1 rounded-full bg-green-500",
+                isLoading ? "animate-ping" : "animate-pulse"
+              )}
+            />
+            {isLoading ? "STREAMING" : "LIVE"}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -84,7 +90,24 @@ export function ActivityFeed() {
         style={{ scrollBehavior: "smooth" }}
       >
         <AnimatePresence initial={false}>
-          {logs.map((log) => (
+          {/* Empty state */}
+          {activityLogs.length === 0 && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center justify-center py-10 gap-2"
+            >
+              <span className="text-2xl">🖥️</span>
+              <p className="text-slate-600 text-[11px]">
+                {hasRun
+                  ? "No activity yet"
+                  : "Run Analysis to see live agent activity"}
+              </p>
+            </motion.div>
+          )}
+
+          {/* Actual log entries */}
+          {activityLogs.map((log) => (
             <motion.div
               key={log.id}
               initial={{ opacity: 0, x: -4 }}
@@ -93,14 +116,12 @@ export function ActivityFeed() {
               className="flex items-start gap-2 group"
             >
               <span className="flex-shrink-0 text-slate-700">{log.timestamp}</span>
-              <span className={cn(
-                "flex-shrink-0 font-bold",
-                log.agent === "CEO" ? "text-orange-400" :
-                log.agent === "Research" ? "text-cyan-400" :
-                log.agent === "Marketing" ? "text-pink-400" :
-                log.agent === "Sales" ? "text-green-400" :
-                log.agent === "Content" ? "text-purple-400" : "text-slate-400"
-              )}>
+              <span
+                className={cn(
+                  "flex-shrink-0 font-bold",
+                  agentColor(log.agent)
+                )}
+              >
                 [{log.agent}]
               </span>
               <span className={cn("leading-relaxed", TYPE_STYLES[log.type])}>
@@ -110,6 +131,32 @@ export function ActivityFeed() {
             </motion.div>
           ))}
         </AnimatePresence>
+
+        {/* Animated thinking indicator while loading */}
+        {isLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center gap-2 text-purple-400"
+          >
+            <span className="text-slate-700">
+              {new Date().toTimeString().slice(0, 8)}
+            </span>
+            <span className="font-bold text-orange-400">[CEO]</span>
+            <span className="text-purple-300">AI is processing</span>
+            <span className="flex gap-0.5">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="inline-block h-1 w-1 rounded-full bg-purple-500"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: i * 0.25 }}
+                />
+              ))}
+            </span>
+          </motion.div>
+        )}
+
         {/* Blinking cursor */}
         <div className="flex items-center gap-2 text-slate-700">
           <span>{new Date().toTimeString().slice(0, 8)}</span>

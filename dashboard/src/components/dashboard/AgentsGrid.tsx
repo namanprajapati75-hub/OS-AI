@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, MessageSquare } from "lucide-react";
+import { ArrowRight, MessageSquare, Loader2 } from "lucide-react";
 import { StatusDot, GlowCard } from "@/components/ui";
-import { Agent, AgentStatus, DEPT_COLORS, mockAgents } from "@/data/mock";
+import { DEPT_COLORS } from "@/data/mock";
+import { MappedAgent } from "@/lib/api";
+import { useBackend } from "@/hooks/useBackend";
 import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type AgentStatus = "IDLE" | "WORKING" | "THINKING" | "COMPLETE";
 
 const STATUS_LABELS: Record<AgentStatus, string> = {
   IDLE: "Idle",
@@ -21,25 +27,65 @@ const STATUS_COLORS: Record<AgentStatus, string> = {
   COMPLETE: "text-green-400",
 };
 
-function AgentCard({ agent }: { agent: Agent }) {
-  const deptColor = DEPT_COLORS[agent.name];
+// ─── Agent Card Skeleton ───────────────────────────────────────────────────────
+
+function AgentSkeleton() {
+  return (
+    <div className="rounded-2xl border border-[#1a2340] bg-[#080d1a] p-5 animate-pulse">
+      <div className="mb-4 flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-[#1a2340]" />
+          <div>
+            <div className="mb-1 h-4 w-20 rounded bg-[#1a2340]" />
+            <div className="h-3 w-32 rounded bg-[#1a2340]/60" />
+          </div>
+        </div>
+        <div className="h-4 w-16 rounded bg-[#1a2340]" />
+      </div>
+      <div className="mb-4 h-8 rounded-lg bg-[#1a2340]/50" />
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="h-12 rounded-lg bg-[#1a2340]/50" />
+        <div className="h-12 rounded-lg bg-[#1a2340]/50" />
+      </div>
+      <div className="h-9 rounded-lg bg-[#1a2340]" />
+    </div>
+  );
+}
+
+// ─── Agent Card ───────────────────────────────────────────────────────────────
+
+function AgentCard({ agent }: { agent: MappedAgent }) {
+  const status = agent.status as AgentStatus;
+
+  // Try to match department color; fallback to Marketing
+  const nameKey = agent.name as keyof typeof DEPT_COLORS;
+  const deptColor = DEPT_COLORS[nameKey] || DEPT_COLORS["Marketing"];
 
   return (
     <GlowCard
       hover
-      glowColor={agent.status !== "IDLE" ? deptColor.glow : undefined}
+      glowColor={status !== "IDLE" ? deptColor.glow : undefined}
       className="relative group border"
     >
       {/* Top accent line */}
       <div
-        className={cn("absolute inset-x-0 top-0 h-px", `bg-gradient-to-r from-transparent via-current to-transparent`, deptColor.text)}
-        style={{ opacity: agent.status !== "IDLE" ? 0.5 : 0.15 }}
+        className={cn(
+          "absolute inset-x-0 top-0 h-px",
+          `bg-gradient-to-r from-transparent via-current to-transparent`,
+          deptColor.text
+        )}
+        style={{ opacity: status !== "IDLE" ? 0.5 : 0.15 }}
       />
 
       {/* Header */}
       <div className="mb-4 flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl text-xl", deptColor.bg)}>
+          <div
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-xl text-xl",
+              deptColor.bg
+            )}
+          >
             {agent.icon}
           </div>
           <div>
@@ -48,27 +94,33 @@ function AgentCard({ agent }: { agent: Agent }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <StatusDot status={agent.status} />
-          <span className={cn("text-xs font-medium", STATUS_COLORS[agent.status])}>
-            {STATUS_LABELS[agent.status]}
+          <StatusDot status={status} />
+          <span className={cn("text-xs font-medium", STATUS_COLORS[status])}>
+            {STATUS_LABELS[status]}
           </span>
         </div>
       </div>
 
       {/* Current task */}
       <div className="mb-4 rounded-lg border border-[#1a2340] bg-black/20 px-3 py-2">
-        <p className="text-xs text-slate-500 leading-relaxed truncate">{agent.currentTask}</p>
+        <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+          {agent.currentTask}
+        </p>
       </div>
 
       {/* Stats */}
       <div className="mb-4 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-black/20 px-3 py-2">
           <p className="text-[10px] text-slate-600">Completed</p>
-          <p className={cn("text-sm font-bold", deptColor.text)}>{agent.completedToday}</p>
+          <p className={cn("text-sm font-bold", deptColor.text)}>
+            {agent.completedToday}
+          </p>
         </div>
         <div className="rounded-lg bg-black/20 px-3 py-2">
           <p className="text-[10px] text-slate-600">Efficiency</p>
-          <p className={cn("text-sm font-bold", deptColor.text)}>{agent.efficiency}%</p>
+          <p className={cn("text-sm font-bold", deptColor.text)}>
+            {agent.efficiency > 0 ? `${agent.efficiency}%` : "—"}
+          </p>
         </div>
       </div>
 
@@ -78,7 +130,9 @@ function AgentCard({ agent }: { agent: Agent }) {
           href={agent.name === "Marketing" ? "/marketing" : "#"}
           className={cn(
             "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
-            deptColor.border, deptColor.bg, deptColor.text,
+            deptColor.border,
+            deptColor.bg,
+            deptColor.text,
             "hover:opacity-80"
           )}
         >
@@ -93,24 +147,63 @@ function AgentCard({ agent }: { agent: Agent }) {
   );
 }
 
+// ─── Agents Grid ──────────────────────────────────────────────────────────────
+
 export function AgentsGrid() {
+  const { agents, isLoading, hasRun } = useBackend();
+
   return (
     <div>
-      <div className="mb-4">
-        <h2 className="text-base font-bold text-white">Department Agents</h2>
-        <p className="text-xs text-slate-500">7 autonomous agents online</p>
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {mockAgents.map((agent, i) => (
-          <motion.div
-            key={agent.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.07 }}
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-bold text-white">Department Agents</h2>
+          <p className="text-xs text-slate-500">
+            {isLoading ? (
+              <span className="flex items-center gap-1.5 text-amber-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Agents thinking...
+              </span>
+            ) : hasRun ? (
+              `${agents.filter((a) => a.status === "COMPLETE").length} agents completed tasks`
+            ) : (
+              `${agents.length} autonomous agents standing by`
+            )}
+          </p>
+        </div>
+        {hasRun && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs text-green-400"
           >
-            <AgentCard agent={agent} />
-          </motion.div>
-        ))}
+            ● Live Results
+          </motion.span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {isLoading
+          ? // Show skeletons while loading
+            [1, 2, 3, 4].map((i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.07 }}
+              >
+                <AgentSkeleton />
+              </motion.div>
+            ))
+          : agents.map((agent, i) => (
+              <motion.div
+                key={agent.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.07 }}
+              >
+                <AgentCard agent={agent} />
+              </motion.div>
+            ))}
       </div>
     </div>
   );

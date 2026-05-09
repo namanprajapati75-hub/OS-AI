@@ -3,8 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, TrendingUp, Eye, Heart, BarChart2, Film,
-  Lightbulb, Calendar, Send, Bot, User, Sparkles, Play
+  ArrowLeft, TrendingUp, Calendar, Send, Bot, Sparkles, Play, Loader2, AlertCircle
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -14,9 +13,10 @@ import {
   mockMarketingStats, mockReelIdeas, mockMarketingInsights,
   mockEngagementData
 } from "@/data/mock";
+import { chatWithAgent, BackendResponse, BackendAgentResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-// ─── Dynamic Imports ─────────────────────────────────────────────
+// ─── Dynamic Imports ─────────────────────────────────────────────────────────
 const AnalyticsChart = dynamic(() => import("@/components/dashboard/AnalyticsChart"), {
   ssr: false,
   loading: () => (
@@ -26,7 +26,7 @@ const AnalyticsChart = dynamic(() => import("@/components/dashboard/AnalyticsCha
   ),
 });
 
-// ─── Stat Cards ──────────────────────────────────────────────────
+// ─── Stat Cards ──────────────────────────────────────────────────────────────
 function StatsRow() {
   const { followers, avgViews, totalLikes, growthPct, reelsAnalyzed } = mockMarketingStats;
   return (
@@ -40,7 +40,7 @@ function StatsRow() {
   );
 }
 
-// ─── Tabs ────────────────────────────────────────────────────────
+// ─── Tabs ────────────────────────────────────────────────────────────────────
 const TABS = ["Overview", "Reels", "Ideas", "Analytics", "Calendar"] as const;
 type Tab = typeof TABS[number];
 
@@ -65,7 +65,7 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
   );
 }
 
-// ─── AI Insights ─────────────────────────────────────────────────
+// ─── AI Insights ─────────────────────────────────────────────────────────────
 function InsightsSection() {
   return (
     <div>
@@ -105,7 +105,7 @@ function InsightsSection() {
   );
 }
 
-// ─── Content Ideas ────────────────────────────────────────────────
+// ─── Content Ideas ────────────────────────────────────────────────────────────
 function IdeasSection() {
   return (
     <div>
@@ -163,12 +163,12 @@ function IdeasSection() {
   );
 }
 
-// ─── Analytics Chart ─────────────────────────────────────────────
+// ─── Analytics Chart ─────────────────────────────────────────────────────────
 function AnalyticsSection() {
   return <AnalyticsChart />;
 }
 
-// ─── AI Chat Panel ────────────────────────────────────────────────
+// ─── AI Chat Panel ────────────────────────────────────────────────────────────
 interface ChatMessage {
   role: "user" | "ai";
   content: string;
@@ -179,45 +179,85 @@ const QUICK_PROMPTS = [
   "Write a viral hook for my next reel",
   "Analyze my best performing content",
   "Suggest a content calendar for this week",
+  "Generate 5 reel ideas for AI finance content",
 ];
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
     role: "ai",
-    content: "Hey! I'm your Marketing AI. I've analyzed 142 reels and 30 days of engagement data. Ask me anything — hooks, captions, strategy, or content ideas.",
-    ts: "18:40",
+    content:
+      "Hey! I'm your Marketing AI. I can help with hooks, captions, strategy, and content ideas. I'll query the real AI backend — first response may take up to 60s (cold start).",
+    ts: new Date().toTimeString().slice(0, 5),
   },
 ];
+
+function extractMarketingOutput(response: BackendResponse): string {
+  // Try to find marketing or content agent output
+  const marketingAgents = ["marketing", "content", "sales"];
+  for (const agentKey of marketingAgents) {
+    const found = response.agent_results?.find(
+      (r: BackendAgentResult) =>
+        (r.agent || "").toLowerCase().includes(agentKey) && r.output
+    );
+    if (found?.output) return found.output;
+  }
+  // Fall back to CEO analysis from business_updates
+  const updates = response.business_updates || {};
+  const values = Object.values(updates).join("\n\n");
+  if (values) return values;
+  // Fall back to any available output
+  const anyOutput = response.agent_results?.find((r: BackendAgentResult) => r.output);
+  return anyOutput?.output || "Analysis complete. Try asking a more specific marketing question.";
+}
 
 function MarketingChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const MOCK_RESPONSES: Record<string, string> = {
-    default: "Based on your engagement data, I recommend posting between 7-9PM IST on Tuesdays and Thursdays. Your 'before/after' format reels are getting 3.4x more saves. Want me to write a script using that format?",
-    hook: "Here are 3 viral hooks for your niche:\n\n1. 'I made $12k in 6 months with just this one system...'\n2. 'Nobody's talking about this AI strategy. Here's why it works.'\n3. 'I went from 0 to 10k followers in 90 days. This is the exact formula.'",
-    calendar: "Here's your content calendar:\n\n📅 Mon: Educational (AI tips)\n📅 Tue: Behind-the-scenes (7PM)\n📅 Wed: Value post (stats/data)\n📅 Thu: Viral reel (before/after)\n📅 Fri: Engagement story\n📅 Sat: Off\n📅 Sun: Week-in-review",
-  };
-
   const send = async () => {
-    if (!input.trim()) return;
-    const userMsg = input;
+    if (!input.trim() || thinking) return;
+    const userMsg = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMsg, ts: new Date().toTimeString().slice(0, 5) }]);
+    setError(null);
+
+    // Optimistic user message
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: userMsg, ts: new Date().toTimeString().slice(0, 5) },
+    ]);
     setThinking(true);
 
-    await new Promise((r) => setTimeout(r, 1200));
-    const key = userMsg.toLowerCase().includes("hook") ? "hook" :
-                 userMsg.toLowerCase().includes("calendar") ? "calendar" : "default";
+    try {
+      // Frame the user message as a marketing-focused goal for the backend
+      const goal = `Marketing AI task: ${userMsg}. Focus on social media content strategy, viral hooks, reel ideas, and audience engagement.`;
+      const response = await chatWithAgent(goal);
+      const aiContent = extractMarketingOutput(response);
 
-    setMessages((prev) => [...prev, {
-      role: "ai",
-      content: MOCK_RESPONSES[key],
-      ts: new Date().toTimeString().slice(0, 5),
-    }]);
-    setThinking(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          content: aiContent,
+          ts: new Date().toTimeString().slice(0, 5),
+        },
+      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(msg);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          content: `⚠️ Error: ${msg}. Please try again.`,
+          ts: new Date().toTimeString().slice(0, 5),
+        },
+      ]);
+    } finally {
+      setThinking(false);
+    }
   };
 
   useEffect(() => {
@@ -234,7 +274,7 @@ function MarketingChatPanel() {
         </div>
         <div>
           <p className="text-sm font-semibold text-white">Marketing AI</p>
-          <p className="text-[10px] text-green-400">● Online — 142 reels analyzed</p>
+          <p className="text-[10px] text-green-400">● Live — powered by FastAPI backend</p>
         </div>
       </div>
 
@@ -247,40 +287,48 @@ function MarketingChatPanel() {
             animate={{ opacity: 1, y: 0 }}
             className={cn("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}
           >
-            <div className={cn(
-              "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs",
-              msg.role === "ai"
-                ? "bg-gradient-to-br from-pink-500 to-purple-600"
-                : "bg-[#0d1424] border border-[#2a3560]"
-            )}>
+            <div
+              className={cn(
+                "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs",
+                msg.role === "ai"
+                  ? "bg-gradient-to-br from-pink-500 to-purple-600"
+                  : "bg-[#0d1424] border border-[#2a3560]"
+              )}
+            >
               {msg.role === "ai" ? "🤖" : "👤"}
             </div>
-            <div className={cn(
-              "max-w-[80%] rounded-2xl px-4 py-3 text-xs leading-relaxed whitespace-pre-wrap",
-              msg.role === "ai"
-                ? "bg-[#0d1424] border border-[#1a2340] text-slate-300"
-                : "bg-purple-600 text-white"
-            )}>
+            <div
+              className={cn(
+                "max-w-[80%] rounded-2xl px-4 py-3 text-xs leading-relaxed whitespace-pre-wrap",
+                msg.role === "ai"
+                  ? "bg-[#0d1424] border border-[#1a2340] text-slate-300"
+                  : "bg-purple-600 text-white"
+              )}
+            >
               {msg.content}
             </div>
           </motion.div>
         ))}
 
+        {/* Thinking indicator */}
         {thinking && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2">
             <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-purple-600 text-xs">
               🤖
             </div>
             <div className="rounded-2xl border border-[#1a2340] bg-[#0d1424] px-4 py-3">
-              <div className="flex gap-1">
-                {[0, 1, 2].map((i) => (
-                  <motion.span
-                    key={i}
-                    className="inline-block h-1.5 w-1.5 rounded-full bg-purple-500"
-                    animate={{ opacity: [0.3, 1, 0.3] }}
-                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                  />
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-purple-500"
+                      animate={{ opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] text-slate-500">Querying AI backend...</span>
               </div>
             </div>
           </motion.div>
@@ -288,13 +336,30 @@ function MarketingChatPanel() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Error banner */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2"
+          >
+            <AlertCircle className="h-3 w-3 flex-shrink-0 text-red-400" />
+            <p className="text-[10px] text-red-400 flex-1 truncate">{error}</p>
+            <button onClick={() => setError(null)} className="text-red-400 text-xs">✕</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Quick prompts */}
       <div className="px-4 pb-2 flex gap-1.5 flex-wrap">
         {QUICK_PROMPTS.map((p) => (
           <button
             key={p}
             onClick={() => setInput(p)}
-            className="rounded-full border border-[#1a2340] bg-[#080d1a] px-2.5 py-1 text-[10px] text-slate-500 hover:text-slate-300 hover:border-[#2a3560] transition-all"
+            disabled={thinking}
+            className="rounded-full border border-[#1a2340] bg-[#080d1a] px-2.5 py-1 text-[10px] text-slate-500 hover:text-slate-300 hover:border-[#2a3560] transition-all disabled:opacity-40"
           >
             {p}
           </button>
@@ -307,16 +372,21 @@ function MarketingChatPanel() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
+            onKeyDown={(e) => e.key === "Enter" && !thinking && send()}
             placeholder="Ask Marketing anything..."
-            className="flex-1 rounded-xl border border-[#1a2340] bg-[#0d1424] px-4 py-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/20 transition-all"
+            disabled={thinking}
+            className="flex-1 rounded-xl border border-[#1a2340] bg-[#0d1424] px-4 py-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/20 transition-all disabled:opacity-60"
           />
           <button
             onClick={send}
-            disabled={!input.trim()}
+            disabled={!input.trim() || thinking}
             className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 text-white disabled:opacity-40 transition-all hover:scale-105"
           >
-            <Send className="h-3.5 w-3.5" />
+            {thinking ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
           </button>
         </div>
       </div>
@@ -324,30 +394,32 @@ function MarketingChatPanel() {
   );
 }
 
-// ─── Tab Content ──────────────────────────────────────────────────
+// ─── Tab Content ──────────────────────────────────────────────────────────────
 function TabContent({ tab }: { tab: Tab }) {
   switch (tab) {
-    case "Overview": return (
-      <div className="space-y-8">
-        <InsightsSection />
-        <IdeasSection />
-      </div>
-    );
+    case "Overview":
+      return (
+        <div className="space-y-8">
+          <InsightsSection />
+          <IdeasSection />
+        </div>
+      );
     case "Reels": return <IdeasSection />;
     case "Ideas": return <IdeasSection />;
     case "Analytics": return <AnalyticsSection />;
-    case "Calendar": return (
-      <GlowCard hover={false} className="flex items-center justify-center py-20">
-        <div className="text-center">
-          <Calendar className="mx-auto mb-3 h-10 w-10 text-slate-600" />
-          <p className="text-sm text-slate-500">Content calendar coming soon</p>
-        </div>
-      </GlowCard>
-    );
+    case "Calendar":
+      return (
+        <GlowCard hover={false} className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <Calendar className="mx-auto mb-3 h-10 w-10 text-slate-600" />
+            <p className="text-sm text-slate-500">Content calendar coming soon</p>
+          </div>
+        </GlowCard>
+      );
   }
 }
 
-// ─── Marketing Page ───────────────────────────────────────────────
+// ─── Marketing Page ───────────────────────────────────────────────────────────
 export default function MarketingPage() {
   const [tab, setTab] = useState<Tab>("Overview");
 
@@ -361,7 +433,10 @@ export default function MarketingPage() {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-pink-500/60 to-transparent" />
 
         <div className="mx-auto max-w-[1600px] px-6 py-8">
-          <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+          <Link
+            href="/"
+            className="mb-4 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
             <ArrowLeft className="h-3 w-3" />
             Back to Dashboard
           </Link>
@@ -372,12 +447,14 @@ export default function MarketingPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">Marketing Agent</h1>
-              <p className="text-sm text-slate-500">Autonomous AI Content Strategist — 142 reels analyzed</p>
+              <p className="text-sm text-slate-500">
+                Autonomous AI Content Strategist — Powered by FastAPI backend
+              </p>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <span className="flex items-center gap-1.5 rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs text-green-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                Working
+                Live
               </span>
             </div>
           </div>
@@ -409,7 +486,10 @@ export default function MarketingPage() {
           </div>
 
           {/* Right: Chat panel */}
-          <div className="w-80 flex-shrink-0 hidden xl:flex flex-col" style={{ height: "calc(100vh - 200px)", position: "sticky", top: "80px" }}>
+          <div
+            className="w-80 flex-shrink-0 hidden xl:flex flex-col"
+            style={{ height: "calc(100vh - 200px)", position: "sticky", top: "80px" }}
+          >
             <MarketingChatPanel />
           </div>
         </div>
