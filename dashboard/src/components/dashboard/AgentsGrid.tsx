@@ -29,7 +29,6 @@ function AgentCard({ agent }: { agent: Agent }) {
       hover
       glowColor={agent.status !== "IDLE" ? deptColor.glow : undefined}
       className="relative group border"
-      style={{ borderColor: agent.status !== "IDLE" ? undefined : undefined } as React.CSSProperties}
     >
       {/* Top accent line */}
       <div

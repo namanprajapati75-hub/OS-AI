@@ -46,8 +46,12 @@ def _detect_business_updates(user_message: str) -> dict:
     return updates
 
 
-async def run_ceo_agent(goal: str, memory: list = [], business_context: dict = {}):
+async def run_ceo_agent(goal: str, memory: list | None = None, business_context: dict | None = None):
     start_time = time.time()
+    if memory is None:
+        memory = []
+    if business_context is None:
+        business_context = {}
 
     # Build conversation history text
     memory_text = ""
